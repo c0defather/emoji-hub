@@ -1,49 +1,142 @@
----
-name: Postgres + Drizzle Next.js Starter
-slug: postgres-drizzle
-description: Simple Next.js template that uses a Postgres database and Drizzle as the ORM.
-framework: Next.js
-useCase: Starter
-css: Tailwind
-database: Postgres
-deployUrl: https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fexamples%2Ftree%2Fmain%2Fstorage%2Fpostgres-drizzle&project-name=postgres-drizzle&repository-name=postgres-drizzle&demo-title=Vercel%20Postgres%20%2B%20Drizzle%20Next.js%20Starter&demo-description=Simple%20Next.js%20template%20that%20uses%20Vercel%20Postgres%20as%20the%20database%20and%20Drizzle%20as%20the%20ORM.&demo-url=https%3A%2F%2Fpostgres-drizzle.vercel.app%2F&demo-image=https%3A%2F%2Fpostgres-drizzle.vercel.app%2Fopengraph-image.png&products=%5B%7B%22type%22%3A%22integration%22%2C%22group%22%3A%22postgres%22%7D%5D
-demoUrl: https://postgres-drizzle.vercel.app/
-relatedTemplates:
-  - postgres-starter
-  - postgres-prisma
-  - postgres-kysely
----
+# Emoji Hub Backend
 
-# Postgres + Drizzle Next.js Starter
+A Next.js backend that mirrors [emojihub.yurace.pro](https://emojihub.yurace.pro/api/all) into Postgres,
+enriches every emoji with LLM-written descriptions and generational meanings in
+English, Russian and Kazakh, and serves it all over a JSON API.
 
-Simple Next.js template that uses a Postgres database and [Drizzle](https://github.com/drizzle-team/drizzle-orm) as the ORM.
+## How it works
 
-## Demo
+1. **Daily sync** — `/api/cron/sync` fetches the full upstream catalogue (1791 emojis),
+   hashes the payload, and does nothing if the hash matches the previous run. When
+   something did change, only the affected rows are rewritten and their
+   `content_version` is bumped.
+2. **Enrichment** — `/api/cron/enrich` finds emojis with missing or stale translations
+   and asks a model (through the Vercel AI Gateway) to write, per locale, a name, a
+   description, a millennial meaning and a zoomer meaning. Work is batched and
+   time-boxed so a run never exceeds the function limit; leftovers are picked up next run.
+3. **Read API** — `/api/emojis` and friends serve the stored data with filtering,
+   search and locale selection.
 
-https://postgres-drizzle.vercel.app/
+## Setup
 
-## How to Use
-
-You can choose from one of the following two methods to use this repository:
-
-### One-Click Deploy
-
-Deploy the example using [Vercel](https://vercel.com?utm_source=github&utm_medium=readme&utm_campaign=vercel-examples):
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fexamples%2Ftree%2Fmain%2Fstorage%2Fpostgres-drizzle&project-name=postgres-drizzle&repository-name=postgres-drizzle&demo-title=Vercel%20Postgres%20%2B%20Drizzle%20Next.js%20Starter&demo-description=Simple%20Next.js%20template%20that%20uses%20Vercel%20Postgres%20as%20the%20database%20and%20Drizzle%20as%20the%20ORM.&demo-url=https%3A%2F%2Fpostgres-drizzle.vercel.app%2F&demo-image=https%3A%2F%2Fpostgres-drizzle.vercel.app%2Fopengraph-image.png&products=%5B%7B%22type%22%3A%22integration%22%2C%22group%22%3A%22postgres%22%7D%5D)
-
-### Clone and Deploy
-
-Execute [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app) with [pnpm](https://pnpm.io/installation) to bootstrap the example:
+Requires Node 20+.
 
 ```bash
-pnpm create next-app --example https://github.com/vercel/examples/tree/main/storage/postgres-drizzle
-```
-
-Next, run Next.js in development mode:
-
-```bash
+pnpm install
+cp .env.example .env      # fill in POSTGRES_URL and AI_GATEWAY_API_KEY
+pnpm db:migrate           # create tables
+pnpm emojis:sync          # pull all 1791 emojis
+pnpm emojis:enrich        # backfill translations (takes a while)
 pnpm dev
 ```
 
-Deploy it to the cloud with [Vercel](https://vercel.com/new?utm_source=github&utm_medium=readme&utm_campaign=vercel-examples) ([Documentation](https://nextjs.org/docs/deployment)).
+### Environment variables
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `POSTGRES_URL` | yes | Neon connection string used at runtime |
+| `POSTGRES_URL_NON_POOLING` | for migrations | Direct connection used by drizzle-kit |
+| `AI_GATEWAY_API_KEY` | for enrichment | [AI Gateway key](https://vercel.com/d?to=%2F%5Bteam%5D%2F~%2Fai-gateway%2Fapi-keys). Not needed on Vercel with OIDC |
+| `CRON_SECRET` | in production | Shared secret guarding `/api/cron/*` |
+| `EMOJI_ENRICHMENT_MODEL` | no | Defaults to `google/gemini-3.7-flash` |
+| `EMOJI_ENRICHMENT_BATCH_SIZE` | no | Emojis per model call, default `8` |
+| `EMOJI_ENRICHMENT_CONCURRENCY` | no | Parallel model calls, default `3` |
+| `EMOJI_ENRICHMENT_MAX_ATTEMPTS` | no | Retries before an emoji is skipped, default `3` |
+
+## API
+
+All responses are JSON. Timestamps are ISO 8601 strings.
+
+### `GET /api/emojis`
+
+| Query param | Default | Notes |
+| --- | --- | --- |
+| `locale` | `all` | `en`, `ru`, `kz`, a comma-separated list, or `all` |
+| `category` | – | Exact match, e.g. `flags` |
+| `group` | – | Exact match, e.g. `face positive` |
+| `search` | – | Case-insensitive match on the English name and on translated names/descriptions |
+| `enriched` | – | `true` returns only emojis that already have translations |
+| `random` | – | `true` returns a random selection instead of an ordered page |
+| `limit` | `50` | 1–200 |
+| `offset` | `0` | Ignored when `random=true` |
+
+```jsonc
+{
+  "data": [
+    {
+      "id": "grinning-face-u-1f600",
+      "character": "😀",
+      "name": "grinning face",
+      "category": "smileys and people",
+      "group": "face positive",
+      "htmlCode": ["&#128512;"],
+      "unicode": ["U+1F600"],
+      "enriched": true,
+      "updatedAt": "2026-09-01T15:07:13.084Z",
+      "translations": {
+        "en": {
+          "name": "grinning face",
+          "description": "A yellow face with a wide open smile showing upper teeth.",
+          "millennialMeaning": "…",
+          "zoomerMeaning": "…",
+          "model": "google/gemini-3.7-flash",
+          "updatedAt": "2026-09-01T15:30:39.281Z"
+        },
+        "ru": { "…": "…" },
+        "kz": { "…": "…" }
+      }
+    }
+  ],
+  "total": 1791,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+### Other endpoints
+
+| Endpoint | Description |
+| --- | --- |
+| `GET /api/emojis/[id]` | A single emoji; accepts the same `locale` param. 404 if unknown |
+| `GET /api/categories` | The eight categories with emoji counts |
+| `GET /api/groups` | The 37 groups with their category and counts |
+| `GET /api/stats` | Totals, per-locale translation counts, last sync run, pending enrichment |
+| `GET /api/sync-runs` | Recent sync history (`?limit=`, max 100) |
+| `GET /api/health` | Database liveness check |
+| `GET\|POST /api/cron/sync` | Runs the sync. `?force=true` re-applies an unchanged payload |
+| `GET\|POST /api/cron/enrich` | Runs one enrichment pass. `?limit=`, `?timeBudgetMs=`, `?force=true` |
+
+The cron endpoints require `Authorization: Bearer $CRON_SECRET` (what Vercel Cron
+sends) or an `x-cron-secret` header. Auth is skipped when `CRON_SECRET` is unset
+outside production.
+
+## Scheduling
+
+`vercel.json` registers two daily cron jobs: the sync at 03:00 UTC and one
+enrichment pass at 03:30 UTC. One pass handles the emojis that changed that day;
+the initial backfill of all 1791 emojis is meant to be run once with
+`pnpm emojis:enrich`. If you want the backfill to happen on the deployment
+instead, lower the enrichment schedule to hourly — note that Hobby projects are
+limited to one invocation per day per cron.
+
+## Data model
+
+- **`emojis`** — one row per upstream emoji. `id` is a slug of the name plus its
+  unicode code points, which is the only unique combination the upstream API
+  offers. `source_hash` detects per-emoji changes, `content_version` invalidates
+  translations, `is_active` marks emojis that disappeared upstream.
+- **`emoji_translations`** — `(emoji_id, locale)` primary key, holding the name,
+  description, millennial meaning and zoomer meaning plus the model that wrote
+  them and the `source_version` they were generated from.
+- **`sync_runs`** — audit trail with per-run counts, duration, payload hash and errors.
+
+## Scripts
+
+| Command | Description |
+| --- | --- |
+| `pnpm emojis:sync [--force]` | Run the sync from the CLI |
+| `pnpm emojis:enrich [--limit=N] [--once] [--force]` | Enrich until nothing is pending |
+| `pnpm db:generate` | Generate a migration from schema changes |
+| `pnpm db:migrate` | Apply migrations |
+| `pnpm db:studio` | Open Drizzle Studio |
+| `pnpm typecheck` / `pnpm lint` | Static checks |
