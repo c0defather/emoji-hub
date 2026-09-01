@@ -17,9 +17,10 @@ function createClient(): Client {
   }
 
   return postgres(url, {
-    // Neon requires TLS; an explicit sslmode in the URL (e.g. a local
-    // container with sslmode=disable) always wins.
-    ssl: /[?&]sslmode=/.test(url) ? undefined : 'require',
+    // Neon requires TLS. postgres-js checks `'ssl' in options` rather than the
+    // value, so passing undefined here would suppress the URL's sslmode and
+    // connect in the clear; only an explicit sslmode=disable may turn TLS off.
+    ssl: /[?&]sslmode=disable(&|$)/.test(url) ? false : 'require',
     max: Number(process.env.POSTGRES_POOL_MAX ?? 5),
     idle_timeout: 20,
     connect_timeout: 15,
