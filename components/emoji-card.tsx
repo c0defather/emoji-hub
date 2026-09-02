@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { FavoriteButton } from '@/components/favorite-button'
 import { useLocale } from '@/components/locale-provider'
 import { emojiName, type EmojiDto } from '@/lib/emoji'
-import { groupLabel } from '@/lib/i18n'
+import { categoryLabel } from '@/lib/i18n'
 
 export function EmojiCard({ emoji }: { emoji: EmojiDto }) {
   const { locale } = useLocale()
@@ -20,7 +20,7 @@ export function EmojiCard({ emoji }: { emoji: EmojiDto }) {
           {emojiName(emoji, locale)}
         </span>
         <span className="mt-auto line-clamp-1 text-[11px] text-slate-400">
-          {groupLabel(emoji.group, locale)}
+          {categoryLabel(emoji.category, locale)}
         </span>
       </Link>
 

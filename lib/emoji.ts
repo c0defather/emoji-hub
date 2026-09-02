@@ -18,7 +18,10 @@ export interface EmojiTranslationDto {
   name: string
   description: string
   millennialMeaning: string
+  /** Sample message; null on translations written before examples existed. */
+  millennialExample: string | null
   zoomerMeaning: string
+  zoomerExample: string | null
   model: string | null
   updatedAt: string
 }
@@ -28,7 +31,6 @@ export interface EmojiDto {
   character: string
   name: string
   category: string
-  group: string
   htmlCode: string[]
   unicode: string[]
   enriched: boolean
@@ -54,7 +56,6 @@ export function searchHaystack(emoji: EmojiDto): string {
     emoji.id,
     emoji.name,
     emoji.category,
-    emoji.group,
     emoji.character,
     ...emoji.unicode,
     ...emoji.htmlCode,
@@ -66,7 +67,9 @@ export function searchHaystack(emoji: EmojiDto): string {
       translation.name,
       translation.description,
       translation.millennialMeaning,
-      translation.zoomerMeaning
+      translation.millennialExample ?? '',
+      translation.zoomerMeaning,
+      translation.zoomerExample ?? ''
     )
   }
 

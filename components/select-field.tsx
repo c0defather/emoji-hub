@@ -2,7 +2,7 @@
 
 import { ChevronDownIcon } from '@/components/icons'
 
-export interface SelectOption {
+interface SelectOption {
   value: string
   label: string
 }

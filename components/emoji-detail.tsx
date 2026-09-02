@@ -5,32 +5,37 @@ import { CopyButton } from '@/components/copy-button'
 import { FavoriteButton } from '@/components/favorite-button'
 import { ArrowLeftIcon } from '@/components/icons'
 import { useLocale } from '@/components/locale-provider'
-import { emojiName, LOCALES, type EmojiDto } from '@/lib/emoji'
-import {
-  categoryLabel,
-  formatDate,
-  groupLabel,
-  LOCALE_LABELS,
-} from '@/lib/i18n'
+import { emojiName, type EmojiDto } from '@/lib/emoji'
+import { categoryLabel, formatDate } from '@/lib/i18n'
 
-function Chip({ href, children }: { href: string; children: React.ReactNode }) {
+function Meaning({
+  label,
+  text,
+  example,
+  exampleLabel,
+}: {
+  label: string
+  text: string
+  example: string | null
+  exampleLabel: string
+}) {
   return (
-    <Link
-      href={href}
-      className="rounded-full bg-slate-900/[0.04] px-3 py-1 text-xs font-medium text-slate-600 transition hover:bg-violet-600/10 hover:text-violet-700"
-    >
-      {children}
-    </Link>
-  )
-}
-
-function Meaning({ label, text }: { label: string; text: string }) {
-  return (
-    <div className="card p-5">
+    <div className="card flex flex-col p-5">
       <h2 className="text-[11px] font-semibold uppercase tracking-wider text-violet-600">
         {label}
       </h2>
       <p className="mt-2 text-[15px] leading-relaxed text-slate-700">{text}</p>
+
+      {example && (
+        <figure className="mt-4">
+          <figcaption className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
+            {exampleLabel}
+          </figcaption>
+          <p className="mt-1.5 w-fit max-w-full rounded-2xl rounded-bl-md bg-slate-900/[0.04] px-3.5 py-2 text-[15px] leading-relaxed text-slate-700">
+            {example}
+          </p>
+        </figure>
+      )}
     </div>
   )
 }
@@ -49,9 +54,6 @@ export function EmojiDetail({ emoji }: { emoji: EmojiDto }) {
 
   const translation = emoji.translations[locale]
   const title = emojiName(emoji, locale)
-  const others = LOCALES.filter(
-    (other) => other !== locale && emoji.translations[other]
-  )
 
   return (
     <article className="pb-8">
@@ -89,16 +91,12 @@ export function EmojiDetail({ emoji }: { emoji: EmojiDto }) {
           )}
 
           <div className="mt-4 flex flex-wrap justify-center gap-2 sm:justify-start">
-            <Chip href={`/?category=${encodeURIComponent(emoji.category)}`}>
-              {categoryLabel(emoji.category, locale)}
-            </Chip>
-            <Chip
-              href={`/?category=${encodeURIComponent(
-                emoji.category
-              )}&group=${encodeURIComponent(emoji.group)}`}
+            <Link
+              href={`/?category=${encodeURIComponent(emoji.category)}`}
+              className="rounded-full bg-slate-900/[0.04] px-3 py-1 text-xs font-medium text-slate-600 transition hover:bg-violet-600/10 hover:text-violet-700"
             >
-              {groupLabel(emoji.group, locale)}
-            </Chip>
+              {categoryLabel(emoji.category, locale)}
+            </Link>
           </div>
 
           {translation && (
@@ -114,39 +112,20 @@ export function EmojiDetail({ emoji }: { emoji: EmojiDto }) {
           <Meaning
             label={t.millennialMeaning}
             text={translation.millennialMeaning}
+            example={translation.millennialExample}
+            exampleLabel={t.exampleLabel}
           />
-          <Meaning label={t.zoomerMeaning} text={translation.zoomerMeaning} />
+          <Meaning
+            label={t.zoomerMeaning}
+            text={translation.zoomerMeaning}
+            example={translation.zoomerExample}
+            exampleLabel={t.exampleLabel}
+          />
         </div>
       ) : (
         <p className="card mt-4 p-5 text-sm text-slate-500">
           {t.notTranslated}
         </p>
-      )}
-
-      {others.length > 0 && (
-        <section className="mt-8">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">
-            {t.otherLanguages}
-          </h2>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {others.map((other) => {
-              const copy = emoji.translations[other]!
-              return (
-                <div key={other} className="card p-5">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <p className="font-medium text-slate-900">{copy.name}</p>
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                      {LOCALE_LABELS[other].native}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                    {copy.description}
-                  </p>
-                </div>
-              )
-            })}
-          </div>
-        </section>
       )}
 
       <section className="mt-8">
@@ -158,7 +137,6 @@ export function EmojiDetail({ emoji }: { emoji: EmojiDto }) {
             <code className="text-[13px] text-slate-600">{emoji.id}</code>
           </Row>
           <Row label={t.category}>{categoryLabel(emoji.category, locale)}</Row>
-          <Row label={t.group}>{groupLabel(emoji.group, locale)}</Row>
           <Row label={t.unicode}>
             <span className="flex flex-wrap items-center justify-end gap-2">
               <code className="text-[13px] text-slate-600">

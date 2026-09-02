@@ -6,14 +6,14 @@ import { chunk } from '@/lib/utils/chunk'
 
 const UPSERT_CHUNK_SIZE = 250
 
-export interface SyncOptions {
+interface SyncOptions {
   trigger?: 'cron' | 'manual'
   /** Re-apply the upstream payload even when its hash is unchanged. */
   force?: boolean
   signal?: AbortSignal
 }
 
-export type SyncResult = Pick<
+type SyncResult = Pick<
   SyncRun,
   | 'id'
   | 'status'
@@ -43,7 +43,6 @@ function toRow(emoji: NormalizedEmoji): NewEmoji {
     id: emoji.id,
     name: emoji.name,
     category: emoji.category,
-    group: emoji.group,
     htmlCode: emoji.htmlCode,
     unicode: emoji.unicode,
     character: emoji.character,
@@ -138,7 +137,6 @@ export async function syncEmojis(
           set: {
             name: raw`excluded.name`,
             category: raw`excluded.category`,
-            group: raw`excluded."group"`,
             htmlCode: raw`excluded.html_code`,
             unicode: raw`excluded.unicode`,
             character: raw`excluded.character`,
@@ -194,12 +192,4 @@ export async function syncEmojis(
     })
     throw error
   }
-}
-
-export async function recentSyncRuns(limit = 10) {
-  return db
-    .select()
-    .from(syncRuns)
-    .orderBy(desc(syncRuns.startedAt))
-    .limit(limit)
 }

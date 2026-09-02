@@ -1,11 +1,17 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
-export const EMOJI_HUB_ALL_URL = 'https://emojihub.yurace.pro/api/all'
+const EMOJI_HUB_ALL_URL = 'https://emojihub.yurace.pro/api/all'
 
 const upstreamEmojiSchema = z.object({
   name: z.string().min(1),
   category: z.string().min(1),
+  /**
+   * No longer stored, but still parsed and hashed: `sourceHash` is a
+   * fingerprint of the upstream record, and dropping a field from it would
+   * change every hash at once and send the whole catalogue back through
+   * enrichment on the next sync.
+   */
   group: z.string().min(1),
   htmlCode: z.array(z.string()).min(1),
   unicode: z.array(z.string()).min(1),
@@ -13,7 +19,7 @@ const upstreamEmojiSchema = z.object({
 
 const upstreamPayloadSchema = z.array(upstreamEmojiSchema).min(1)
 
-export type UpstreamEmoji = z.infer<typeof upstreamEmojiSchema>
+type UpstreamEmoji = z.infer<typeof upstreamEmojiSchema>
 
 export interface NormalizedEmoji extends UpstreamEmoji {
   id: string
@@ -21,7 +27,7 @@ export interface NormalizedEmoji extends UpstreamEmoji {
   sourceHash: string
 }
 
-export interface FetchResult {
+interface FetchResult {
   emojis: NormalizedEmoji[]
   /** Hash of the whole payload, used to detect that nothing changed upstream. */
   payloadHash: string
@@ -35,12 +41,12 @@ function slugify(value: string) {
 }
 
 /** Stable identifier: emoji name concatenated with its unicode code points. */
-export function buildEmojiId(name: string, unicode: string[]) {
+function buildEmojiId(name: string, unicode: string[]) {
   return slugify(`${name} ${unicode.join(' ')}`)
 }
 
 /** Turns `["U+1F466", "U+1F3FB"]` into the rendered glyph. */
-export function toCharacter(unicode: string[]) {
+function toCharacter(unicode: string[]) {
   const codePoints = unicode
     .flatMap((entry) => entry.trim().split(/\s+/))
     .map((entry) => Number.parseInt(entry.replace(/^U\+/i, ''), 16))
@@ -59,7 +65,7 @@ function hash(value: string) {
   return createHash('sha256').update(value).digest('hex')
 }
 
-export function normalizeEmoji(emoji: UpstreamEmoji): NormalizedEmoji {
+function normalizeEmoji(emoji: UpstreamEmoji): NormalizedEmoji {
   const sourceHash = hash(
     JSON.stringify([
       emoji.name,

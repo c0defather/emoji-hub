@@ -8,14 +8,10 @@ import { cn } from '@/lib/utils'
 export function CopyButton({
   value,
   label,
-  className,
-  children,
 }: {
   value: string
-  /** Accessible name; falls back to the generic "Copy". */
+  /** Accessible name and button text; falls back to the generic "Copy". */
   label?: string
-  className?: string
-  children?: React.ReactNode
 }) {
   const { t } = useLocale()
   const [copied, setCopied] = useState(false)
@@ -45,8 +41,7 @@ export function CopyButton({
         'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition',
         copied
           ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
-          : 'text-slate-500 ring-1 ring-slate-900/10 hover:bg-white hover:text-slate-900',
-        className
+          : 'text-slate-500 ring-1 ring-slate-900/10 hover:bg-white hover:text-slate-900'
       )}
     >
       {copied ? (
@@ -54,7 +49,7 @@ export function CopyButton({
       ) : (
         <CopyIcon className="h-3.5 w-3.5" />
       )}
-      <span>{copied ? t.copied : (children ?? t.copy)}</span>
+      <span>{copied ? t.copied : (label ?? t.copy)}</span>
     </button>
   )
 }

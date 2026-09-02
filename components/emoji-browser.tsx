@@ -7,28 +7,23 @@ import { CloseIcon, SearchIcon, SortIcon } from '@/components/icons'
 import { useLocale } from '@/components/locale-provider'
 import { SelectField } from '@/components/select-field'
 import { emojiName, searchHaystack, type EmojiDto, type Locale } from '@/lib/emoji'
-import { BCP47, categoryLabel, groupLabel } from '@/lib/i18n'
+import { BCP47, categoryLabel } from '@/lib/i18n'
 import { useCatalog } from '@/lib/use-catalog'
 import { cn } from '@/lib/utils'
 
-type SortKey = 'name' | 'category' | 'group'
+type SortKey = 'name' | 'category'
 type Direction = 'asc' | 'desc'
 
-const SORT_KEYS: SortKey[] = ['name', 'category', 'group']
+const SORT_KEYS: SortKey[] = ['name', 'category']
 
 function isSortKey(value: string | null): value is SortKey {
   return value !== null && (SORT_KEYS as string[]).includes(value)
 }
 
 function sortValue(emoji: EmojiDto, sort: SortKey, locale: Locale) {
-  switch (sort) {
-    case 'category':
-      return categoryLabel(emoji.category, locale)
-    case 'group':
-      return groupLabel(emoji.group, locale)
-    default:
-      return emojiName(emoji, locale)
-  }
+  return sort === 'category'
+    ? categoryLabel(emoji.category, locale)
+    : emojiName(emoji, locale)
 }
 
 export function EmojiBrowser() {
@@ -37,7 +32,6 @@ export function EmojiBrowser() {
 
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('')
-  const [group, setGroup] = useState('')
   const [sort, setSort] = useState<SortKey>('name')
   const [direction, setDirection] = useState<Direction>('asc')
 
@@ -51,7 +45,6 @@ export function EmojiBrowser() {
     const params = new URLSearchParams(window.location.search)
     setQuery(params.get('q') ?? '')
     setCategory(params.get('category') ?? '')
-    setGroup(params.get('group') ?? '')
     if (isSortKey(params.get('sort'))) setSort(params.get('sort') as SortKey)
     if (params.get('dir') === 'desc') setDirection('desc')
   }, [])
@@ -81,34 +74,12 @@ export function EmojiBrowser() {
       .sort((a, b) => collator.compare(a.label, b.label))
   }, [emojis, locale, collator])
 
-  const groups = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const emoji of emojis) {
-      if (category && emoji.category !== category) continue
-      counts.set(emoji.group, (counts.get(emoji.group) ?? 0) + 1)
-    }
-    return [...counts]
-      .map(([value, count]) => ({
-        value,
-        label: `${groupLabel(value, locale)} (${count})`,
-      }))
-      .sort((a, b) => collator.compare(a.label, b.label))
-  }, [emojis, category, locale, collator])
-
-  // Picking a category can leave a group selected that no longer belongs to it.
-  useEffect(() => {
-    if (group && groups.length > 0 && !groups.some((o) => o.value === group)) {
-      setGroup('')
-    }
-  }, [group, groups])
-
   const results = useMemo(() => {
     const tokens = deferredQuery.trim().toLowerCase().split(/\s+/).filter(Boolean)
 
     const matched = indexed
       .filter(({ emoji, haystack }) => {
         if (category && emoji.category !== category) return false
-        if (group && emoji.group !== group) return false
         return tokens.every((token) => haystack.includes(token))
       })
       .map(({ emoji }) => emoji)
@@ -124,7 +95,7 @@ export function EmojiBrowser() {
         ? primary
         : collator.compare(emojiName(a, locale), emojiName(b, locale))
     })
-  }, [indexed, category, group, deferredQuery, sort, direction, locale, collator])
+  }, [indexed, category, deferredQuery, sort, direction, locale, collator])
 
   // Keep filters in the URL so a view can be shared or reached with Back.
   useEffect(() => {
@@ -132,7 +103,6 @@ export function EmojiBrowser() {
       const params = new URLSearchParams()
       if (query.trim()) params.set('q', query.trim())
       if (category) params.set('category', category)
-      if (group) params.set('group', group)
       if (sort !== 'name') params.set('sort', sort)
       if (direction !== 'asc') params.set('dir', direction)
 
@@ -147,16 +117,15 @@ export function EmojiBrowser() {
     }, 300)
 
     return () => clearTimeout(timer)
-  }, [query, category, group, sort, direction])
+  }, [query, category, sort, direction])
 
   const filtered = Boolean(
-    query || category || group || sort !== 'name' || direction !== 'asc'
+    query || category || sort !== 'name' || direction !== 'asc'
   )
 
   function reset() {
     setQuery('')
     setCategory('')
-    setGroup('')
     setSort('name')
     setDirection('asc')
   }
@@ -194,18 +163,12 @@ export function EmojiBrowser() {
           )}
         </div>
 
-        <div className="mt-3 grid grid-cols-2 items-end gap-3 sm:grid-cols-[repeat(3,minmax(0,1fr))_auto]">
+        <div className="mt-3 grid grid-cols-[repeat(2,minmax(0,1fr))_auto] items-end gap-3">
           <SelectField
             label={t.category}
             value={category}
             onChange={setCategory}
             options={[{ value: '', label: t.allCategories }, ...categories]}
-          />
-          <SelectField
-            label={t.group}
-            value={group}
-            onChange={setGroup}
-            options={[{ value: '', label: t.allGroups }, ...groups]}
           />
           <SelectField
             label={t.sortBy}
@@ -214,7 +177,6 @@ export function EmojiBrowser() {
             options={[
               { value: 'name', label: t.sortName },
               { value: 'category', label: t.sortCategory },
-              { value: 'group', label: t.sortGroup },
             ]}
           />
           <button

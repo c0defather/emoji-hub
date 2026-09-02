@@ -10,6 +10,7 @@ import {
   eq,
   getTableColumns,
   inArray,
+  isNotNull,
   lt,
   sql as raw,
   sql,
@@ -32,7 +33,7 @@ import {
   type LocaleContent,
 } from './prompt'
 
-export const DEFAULT_MODEL =
+const DEFAULT_MODEL =
   process.env.EMOJI_ENRICHMENT_MODEL ?? 'google/gemini-3.7-flash'
 
 const DEFAULT_BATCH_SIZE = Number(process.env.EMOJI_ENRICHMENT_BATCH_SIZE ?? 8)
@@ -40,13 +41,13 @@ const DEFAULT_CONCURRENCY = Number(process.env.EMOJI_ENRICHMENT_CONCURRENCY ?? 3
 const MAX_ATTEMPTS = Number(process.env.EMOJI_ENRICHMENT_MAX_ATTEMPTS ?? 3)
 
 /**
- * Twelve fields per emoji, and Cyrillic costs roughly twice as many tokens as
+ * Eighteen fields per emoji, and Cyrillic costs roughly twice as many tokens as
  * Latin. Left unset, providers apply their own cap (4k is common) and silently
  * truncate the JSON mid-object, which surfaces as a parse failure.
  */
-const OUTPUT_TOKENS_PER_EMOJI = 1500
+const OUTPUT_TOKENS_PER_EMOJI = 2200
 
-export interface EnrichOptions {
+interface EnrichOptions {
   /** Maximum number of emojis to enrich in this invocation. */
   limit?: number
   /** How many emojis to ask for in a single model call. */
@@ -61,7 +62,7 @@ export interface EnrichOptions {
   signal?: AbortSignal
 }
 
-export interface EnrichResult {
+interface EnrichResult {
   model: string
   attempted: number
   succeeded: number
@@ -74,11 +75,12 @@ export interface EnrichResult {
 }
 
 /**
- * Emojis that are missing at least one locale for their current content
- * version. A bumped `content_version` from the sync job makes previously
- * enriched emojis show up here again.
+ * Emojis that are missing at least one complete locale for their current
+ * content version. A bumped `content_version` from the sync job makes
+ * previously enriched emojis show up here again, as does a translation written
+ * before a field existed — hence the null check on the newest column.
  */
-export async function pendingEmojis(limit: number, force = false) {
+async function pendingEmojis(limit: number, force = false) {
   const query = db
     .select(getTableColumns(emojis))
     .from(emojis)
@@ -86,7 +88,8 @@ export async function pendingEmojis(limit: number, force = false) {
       emojiTranslations,
       and(
         eq(emojiTranslations.emojiId, emojis.id),
-        eq(emojiTranslations.sourceVersion, emojis.contentVersion)
+        eq(emojiTranslations.sourceVersion, emojis.contentVersion),
+        isNotNull(emojiTranslations.millennialExample)
       )
     )
     .where(
@@ -115,7 +118,9 @@ export async function countPendingEmojis() {
       and (
         select count(*)
         from ${emojiTranslations} t
-        where t.emoji_id = e.id and t.source_version = e.content_version
+        where t.emoji_id = e.id
+          and t.source_version = e.content_version
+          and t.millennial_example is not null
       ) < ${LOCALES.length}
   `)
 
@@ -133,7 +138,9 @@ function toTranslationRows(
     name: byLocale[locale].name.trim(),
     description: byLocale[locale].description.trim(),
     millennialMeaning: byLocale[locale].millennialMeaning.trim(),
+    millennialExample: byLocale[locale].millennialExample.trim(),
     zoomerMeaning: byLocale[locale].zoomerMeaning.trim(),
+    zoomerExample: byLocale[locale].zoomerExample.trim(),
     sourceVersion: emoji.contentVersion,
     model,
   }))
@@ -151,7 +158,9 @@ async function persistTranslations(rows: NewEmojiTranslation[]) {
         name: raw`excluded.name`,
         description: raw`excluded.description`,
         millennialMeaning: raw`excluded.millennial_meaning`,
+        millennialExample: raw`excluded.millennial_example`,
         zoomerMeaning: raw`excluded.zoomer_meaning`,
+        zoomerExample: raw`excluded.zoomer_example`,
         sourceVersion: raw`excluded.source_version`,
         model: raw`excluded.model`,
         updatedAt: new Date(),

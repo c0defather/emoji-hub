@@ -55,7 +55,7 @@ function loadCatalogue(): Promise<EmojiDto[]> {
   return inFlight
 }
 
-export type CatalogStatus = 'loading' | 'ready' | 'error'
+type CatalogStatus = 'loading' | 'ready' | 'error'
 
 export function useCatalog() {
   const [emojis, setEmojis] = useState<EmojiDto[]>(() => resolved ?? [])

@@ -36,7 +36,6 @@ export const emojis = pgTable(
     id: text('id').primaryKey(),
     name: text('name').notNull(),
     category: text('category').notNull(),
-    group: text('group').notNull(),
     htmlCode: text('html_code').array().notNull(),
     unicode: text('unicode').array().notNull(),
     /** Rendered glyph derived from `unicode`, stored so clients don't recompute it. */
@@ -59,7 +58,6 @@ export const emojis = pgTable(
   },
   (table) => [
     index('emojis_category_idx').on(table.category),
-    index('emojis_group_idx').on(table.group),
     index('emojis_is_active_idx').on(table.isActive),
     index('emojis_enriched_at_idx').on(table.enrichedAt),
   ]
@@ -77,6 +75,13 @@ export const emojiTranslations = pgTable(
     description: text('description').notNull(),
     millennialMeaning: text('millennial_meaning').notNull(),
     zoomerMeaning: text('zoomer_meaning').notNull(),
+    /**
+     * Sample messages showing each generation using the emoji. Nullable because
+     * they were added after the first translations were written; a null marks
+     * the row as incomplete and sends the emoji back through enrichment.
+     */
+    millennialExample: text('millennial_example'),
+    zoomerExample: text('zoomer_example'),
     /** Value of `emojis.content_version` when this text was generated. */
     sourceVersion: integer('source_version').notNull().default(1),
     model: text('model'),

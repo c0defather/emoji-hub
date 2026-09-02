@@ -24,8 +24,7 @@ export async function generateMetadata({
   return {
     title: `${emoji.character} ${emoji.name}`,
     description:
-      emoji.translations.en?.description ??
-      `${emoji.name} — ${emoji.category}, ${emoji.group}.`,
+      emoji.translations.en?.description ?? `${emoji.name} — ${emoji.category}.`,
   }
 }
 

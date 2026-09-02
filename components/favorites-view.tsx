@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useMemo } from 'react'
 import { useFavorites } from '@/components/favorites-provider'
+import { FavoritesTransfer } from '@/components/favorites-transfer'
 import { EmojiGrid, EmojiGridSkeleton } from '@/components/emoji-grid'
 import { EmptyState } from '@/components/empty-state'
 import { ArrowLeftIcon } from '@/components/icons'
@@ -34,13 +35,16 @@ export function FavoritesView() {
             {!loading && saved.length > 0 && t.showing(saved.length, saved.length)}
           </p>
         </div>
-        <Link
-          href="/"
-          className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-900/5 hover:text-slate-900"
-        >
-          <ArrowLeftIcon className="h-4 w-4" />
-          {t.back}
-        </Link>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <FavoritesTransfer />
+          <Link
+            href="/"
+            className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-900/5 hover:text-slate-900"
+          >
+            <ArrowLeftIcon className="h-4 w-4" />
+            {t.back}
+          </Link>
+        </div>
       </section>
 
       {loading && <EmojiGridSkeleton count={12} />}
