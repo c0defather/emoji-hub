@@ -26,10 +26,6 @@ export interface Dictionary {
   allCategories: string
   sortName: string
   sortCategory: string
-  displayStyle: string
-  styleEmoji: string
-  styleUnicode: string
-  styleHtml: string
   ascending: string
   descending: string
   reset: string
@@ -80,10 +76,6 @@ const en: Dictionary = {
   allCategories: 'All categories',
   sortName: 'Name',
   sortCategory: 'Category',
-  displayStyle: 'Style',
-  styleEmoji: 'Emoji',
-  styleUnicode: 'Unicode',
-  styleHtml: 'HTML code',
   ascending: 'Ascending',
   descending: 'Descending',
   reset: 'Reset',
@@ -140,10 +132,6 @@ const ru: Dictionary = {
   allCategories: 'Все категории',
   sortName: 'По названию',
   sortCategory: 'По категории',
-  displayStyle: 'Стиль',
-  styleEmoji: 'Эмодзи',
-  styleUnicode: 'Юникод',
-  styleHtml: 'HTML-код',
   ascending: 'По возрастанию',
   descending: 'По убыванию',
   reset: 'Сбросить',
@@ -196,10 +184,6 @@ const kz: Dictionary = {
   allCategories: 'Барлық санаттар',
   sortName: 'Атауы бойынша',
   sortCategory: 'Санаты бойынша',
-  displayStyle: 'Стиль',
-  styleEmoji: 'Эмодзи',
-  styleUnicode: 'Юникод',
-  styleHtml: 'HTML коды',
   ascending: 'Өсу ретімен',
   descending: 'Кему ретімен',
   reset: 'Тазалау',

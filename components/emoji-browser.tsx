@@ -1,10 +1,6 @@
 'use client'
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  useDisplayMode,
-  type DisplayMode,
-} from '@/components/display-provider'
 import { EmojiGrid, EmojiGridSkeleton } from '@/components/emoji-grid'
 import { EmptyState } from '@/components/empty-state'
 import { CloseIcon, SearchIcon, SortIcon } from '@/components/icons'
@@ -32,7 +28,6 @@ function sortValue(emoji: EmojiDto, sort: SortKey, locale: Locale) {
 
 export function EmojiBrowser() {
   const { locale, t } = useLocale()
-  const { mode, setMode } = useDisplayMode()
   const { emojis, status, retry } = useCatalog()
 
   const [query, setQuery] = useState('')
@@ -168,7 +163,7 @@ export function EmojiBrowser() {
           )}
         </div>
 
-        <div className="mt-3 grid grid-cols-2 items-end gap-3 sm:grid-cols-[repeat(3,minmax(0,1fr))_auto]">
+        <div className="mt-3 grid grid-cols-[repeat(2,minmax(0,1fr))_auto] items-end gap-3">
           <SelectField
             label={t.category}
             value={category}
@@ -182,16 +177,6 @@ export function EmojiBrowser() {
             options={[
               { value: 'name', label: t.sortName },
               { value: 'category', label: t.sortCategory },
-            ]}
-          />
-          <SelectField
-            label={t.displayStyle}
-            value={mode}
-            onChange={(value) => setMode(value as DisplayMode)}
-            options={[
-              { value: 'emoji', label: t.styleEmoji },
-              { value: 'unicode', label: t.styleUnicode },
-              { value: 'html', label: t.styleHtml },
             ]}
           />
           <button
