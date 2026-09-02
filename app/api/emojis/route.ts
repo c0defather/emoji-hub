@@ -22,9 +22,9 @@ export async function GET(request: NextRequest) {
       enrichedOnly: parseBoolean(searchParams, 'enriched'),
       random: parseBoolean(searchParams, 'random'),
       limit: parseInteger(searchParams, 'limit', {
-        fallback: 50,
+        fallback: 5000,
         min: 1,
-        max: 200,
+        max: 5000,
       }),
       offset: parseInteger(searchParams, 'offset', {
         fallback: 0,
