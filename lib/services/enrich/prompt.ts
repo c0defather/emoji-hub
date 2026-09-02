@@ -17,6 +17,11 @@ const localeContentSchema = z.object({
     .describe('How someone born 1997-2012 typically uses this emoji'),
 })
 
+/**
+ * Several emojis per request. Weaker models tend to drop the wrapper and emit a
+ * bare object per emoji instead, which fails validation; the caller retries
+ * those on progressively smaller batches.
+ */
 export const enrichmentSchema = z.object({
   results: z.array(
     z.object({
@@ -49,10 +54,10 @@ For each language provide:
 
 Rules:
 - Write natively in each language. Never transliterate English text, and never leave English words untranslated unless they are established loanwords.
-- Kazakh must use the Cyrillic alphabet.
+- Kazakh must use the Cyrillic alphabet, and must be idiomatic Kazakh rather than a word-for-word rendering of the English.
 - Keep every field between 1 and 3 sentences. No markdown, no emoji characters inside the text, no quotes around the whole value.
 - If a generation has no distinctive usage, describe the ordinary usage for that generation rather than saying it has none.
-- Return exactly one result object per input emoji, echoing its ref number.`
+- Return one object in "results" for every input emoji, echoing its ref number.`
 
 export function buildUserPrompt(batch: Emoji[]) {
   const lines = batch.map((emoji, index) =>

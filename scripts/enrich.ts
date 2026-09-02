@@ -12,6 +12,10 @@ async function main() {
   const once = process.argv.includes('--once')
   const chunkSize = flag('limit') ?? 100
 
+  if (process.argv.includes('--verbose')) {
+    process.env.EMOJI_ENRICHMENT_DEBUG = '1'
+  }
+
   const pending = await countPendingEmojis()
   console.log(`${pending} emoji(s) need enrichment`)
 
@@ -33,8 +37,9 @@ async function main() {
       console.warn('  errors:', result.errors.join(' | '))
     }
 
-    const noProgress = result.succeeded === 0 && result.failed === 0
-    if (once || force || noProgress || result.remaining === 0) break
+    // Failures that don't count against an emoji's retry budget leave
+    // `remaining` unchanged, so a round with no successes must end the loop.
+    if (once || force || result.succeeded === 0 || result.remaining === 0) break
   }
 
   await sql.end()

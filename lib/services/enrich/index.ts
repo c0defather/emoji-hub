@@ -1,4 +1,9 @@
-import { generateText, Output, type LanguageModel } from 'ai'
+import {
+  generateText,
+  NoObjectGeneratedError,
+  Output,
+  type LanguageModel,
+} from 'ai'
 import {
   and,
   asc,
@@ -19,6 +24,7 @@ import {
   type NewEmojiTranslation,
 } from '@/lib/db/schema'
 import { chunk } from '@/lib/utils/chunk'
+import { logFailure, logRequest, logResponse } from './log'
 import {
   buildUserPrompt,
   enrichmentSchema,
@@ -33,12 +39,21 @@ const DEFAULT_BATCH_SIZE = Number(process.env.EMOJI_ENRICHMENT_BATCH_SIZE ?? 8)
 const DEFAULT_CONCURRENCY = Number(process.env.EMOJI_ENRICHMENT_CONCURRENCY ?? 3)
 const MAX_ATTEMPTS = Number(process.env.EMOJI_ENRICHMENT_MAX_ATTEMPTS ?? 3)
 
+/**
+ * Twelve fields per emoji, and Cyrillic costs roughly twice as many tokens as
+ * Latin. Left unset, providers apply their own cap (4k is common) and silently
+ * truncate the JSON mid-object, which surfaces as a parse failure.
+ */
+const OUTPUT_TOKENS_PER_EMOJI = 1500
+
 export interface EnrichOptions {
   /** Maximum number of emojis to enrich in this invocation. */
   limit?: number
+  /** How many emojis to ask for in a single model call. */
   batchSize?: number
+  /** How many batches to run in parallel. */
   concurrency?: number
-  /** Stop starting new batches once this much time has elapsed. */
+  /** Stop starting new work once this much time has elapsed. */
   timeBudgetMs?: number
   model?: LanguageModel
   /** Re-generate translations that are already up to date. */
@@ -110,7 +125,7 @@ export async function countPendingEmojis() {
 function toTranslationRows(
   emoji: Emoji,
   byLocale: Record<Locale, LocaleContent>,
-  model: string
+  model: string | null
 ): NewEmojiTranslation[] {
   return LOCALES.map((locale) => ({
     emojiId: emoji.id,
@@ -180,13 +195,20 @@ async function enrichBatch(
   model: LanguageModel,
   signal?: AbortSignal
 ) {
-  const { output } = await generateText({
+  const prompt = buildUserPrompt(batch)
+  logRequest(batch, modelId(model), prompt)
+
+  const startedAt = Date.now()
+  const { output, usage } = await generateText({
     model,
     system: SYSTEM_PROMPT,
-    prompt: buildUserPrompt(batch),
+    prompt,
     output: Output.object({ schema: enrichmentSchema }),
+    maxOutputTokens: 1000 + OUTPUT_TOKENS_PER_EMOJI * batch.length,
     abortSignal: signal,
   })
+
+  logResponse(batch, usage, Date.now() - startedAt, output.results.length, output)
 
   const byRef = new Map(output.results.map((result) => [result.ref, result]))
   const rows: NewEmojiTranslation[] = []
@@ -215,6 +237,62 @@ async function enrichBatch(
   await markFailed(missing, 'Model returned no entry for this emoji')
 
   return { succeeded: succeeded.length, failed: missing.length }
+}
+
+/**
+ * Runs one batch, halving it and retrying when the model returns something
+ * that doesn't fit the schema. Shorter responses are easier for a model to keep
+ * well formed, and a single emoji only has to produce a bare object. Other
+ * failures (rate limits, outages) are not worth splitting for.
+ */
+async function runBatch(
+  batch: Emoji[],
+  model: LanguageModel,
+  signal?: AbortSignal
+): Promise<{ succeeded: number; failed: number; errors: string[] }> {
+  const startedAt = Date.now()
+
+  try {
+    const result = await enrichBatch(batch, model, signal)
+    return { ...result, errors: [] }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const unparseable = NoObjectGeneratedError.isInstance(error)
+
+    logFailure(
+      batch,
+      Date.now() - startedAt,
+      message,
+      unparseable ? error.text : undefined
+    )
+
+    if (!unparseable) {
+      // Missing credits, rate limits and outages say nothing about the emoji,
+      // so they must not burn its retry budget: a few such runs would
+      // otherwise push every emoji past MAX_ATTEMPTS and hide it for good.
+      return { succeeded: 0, failed: batch.length, errors: [message] }
+    }
+
+    if (batch.length > 1) {
+      const half = Math.ceil(batch.length / 2)
+      const [first, second] = await Promise.all([
+        runBatch(batch.slice(0, half), model, signal),
+        runBatch(batch.slice(half), model, signal),
+      ])
+
+      return {
+        succeeded: first.succeeded + second.succeeded,
+        failed: first.failed + second.failed,
+        errors: [...first.errors, ...second.errors],
+      }
+    }
+
+    await markFailed(
+      batch.map((emoji) => emoji.id),
+      message
+    )
+    return { succeeded: 0, failed: batch.length, errors: [message] }
+  }
 }
 
 /**
@@ -257,24 +335,20 @@ export async function enrichEmojis(
       const batch = batches[cursor++]
       processedBatches += 1
 
-      try {
-        const result = await enrichBatch(batch, model, signal)
-        succeeded += result.succeeded
-        failed += result.failed
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        failed += batch.length
+      const result = await runBatch(batch, model, signal)
+      succeeded += result.succeeded
+      failed += result.failed
+      for (const message of result.errors) {
         if (errors.length < 5) errors.push(message)
-        await markFailed(
-          batch.map((emoji) => emoji.id),
-          message
-        )
       }
     }
   }
 
   await Promise.all(
-    Array.from({ length: Math.max(1, Math.min(concurrency, batches.length)) }, worker)
+    Array.from(
+      { length: Math.max(1, Math.min(concurrency, batches.length)) },
+      worker
+    )
   )
 
   return {

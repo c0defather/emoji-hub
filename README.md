@@ -12,8 +12,9 @@ English, Russian and Kazakh, and serves it all over a JSON API.
    `content_version` is bumped.
 2. **Enrichment** — `/api/cron/enrich` finds emojis with missing or stale translations
    and asks a model (through the Vercel AI Gateway) to write, per locale, a name, a
-   description, a millennial meaning and a zoomer meaning. Work is batched and
-   time-boxed so a run never exceeds the function limit; leftovers are picked up next run.
+   description, a millennial meaning and a zoomer meaning. One emoji per request, run
+   `EMOJI_ENRICHMENT_CONCURRENCY` at a time and time-boxed so a run never exceeds the
+   function limit; leftovers are picked up next run.
 3. **Read API** — `/api/emojis` and friends serve the stored data with filtering,
    search and locale selection.
 
@@ -42,6 +43,7 @@ pnpm dev
 | `EMOJI_ENRICHMENT_BATCH_SIZE` | no | Emojis per model call, default `8` |
 | `EMOJI_ENRICHMENT_CONCURRENCY` | no | Parallel model calls, default `3` |
 | `EMOJI_ENRICHMENT_MAX_ATTEMPTS` | no | Retries before an emoji is skipped, default `3` |
+| `EMOJI_ENRICHMENT_DEBUG` | no | `1` logs the full prompt and response body for every call |
 
 ## API
 
@@ -119,6 +121,26 @@ the initial backfill of all 1791 emojis is meant to be run once with
 instead, lower the enrichment schedule to hourly — note that Hobby projects are
 limited to one invocation per day per cron.
 
+## Enrichment logs
+
+Every model call logs a `[enrich]` line to stdout, which means the Vercel
+runtime logs for cron runs and the terminal for CLI runs:
+
+```
+[enrich] request model=google/gemini-3.7-flash batch=8 emojis=[snake-u-1f40d, ...]
+[enrich] response batch=8 results=8 tokens=612/5310 took=11.4s
+[enrich] failed batch=8 took=1.5s emojis=[...] reason=...
+```
+
+A failure caused by an unparseable response also logs the raw body, since that
+is the only way to tell a truncated answer apart from a model that ignored the
+schema. Add `--verbose` (or set `EMOJI_ENRICHMENT_DEBUG=1`) to log the full
+prompt and the full response body for every call.
+
+Only unparseable responses count against an emoji's `MAX_ATTEMPTS` budget.
+Missing credits, rate limits and provider outages are logged and retried on the
+next run without marking the emoji as bad.
+
 ## Data model
 
 - **`emojis`** — one row per upstream emoji. `id` is a slug of the name plus its
@@ -135,7 +157,7 @@ limited to one invocation per day per cron.
 | Command | Description |
 | --- | --- |
 | `pnpm emojis:sync [--force]` | Run the sync from the CLI |
-| `pnpm emojis:enrich [--limit=N] [--once] [--force]` | Enrich until nothing is pending |
+| `pnpm emojis:enrich [--limit=N] [--once] [--batch-size=N] [--concurrency=N] [--force] [--verbose]` | Enrich until nothing is pending |
 | `pnpm db:generate` | Generate a migration from schema changes |
 | `pnpm db:migrate` | Apply migrations |
 | `pnpm db:studio` | Open Drizzle Studio |
