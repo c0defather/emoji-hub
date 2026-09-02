@@ -10,7 +10,7 @@ export const metadata: Metadata = {
     template: '%s · Emoji Hub',
   },
   description:
-    'Browse every emoji with descriptions and generational meanings in English, Russian and Kazakh.',
+    'Emojis for all generations, explained. Every emoji with descriptions, millennial and zoomer meanings and example messages in English, Russian and Kazakh.',
 }
 
 const inter = Inter({

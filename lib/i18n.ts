@@ -65,7 +65,7 @@ export interface Dictionary {
 }
 
 const en: Dictionary = {
-  tagline: 'Every emoji, explained in three languages',
+  tagline: 'Emojis for all generations. Explained.',
   sourceCode: 'Source code on GitHub',
   favorites: 'Favorites',
   language: 'Language',
@@ -121,7 +121,7 @@ const en: Dictionary = {
 }
 
 const ru: Dictionary = {
-  tagline: 'Каждое эмодзи с объяснением на трёх языках',
+  tagline: 'Эмодзи для всех поколений. С объяснениями.',
   sourceCode: 'Исходный код на GitHub',
   favorites: 'Избранное',
   language: 'Язык',
@@ -173,7 +173,7 @@ const ru: Dictionary = {
 }
 
 const kz: Dictionary = {
-  tagline: 'Әр эмодзи үш тілде түсіндірілген',
+  tagline: 'Барлық буынға арналған эмодзи. Түсіндірмесімен.',
   sourceCode: 'GitHub-тағы бастапқы код',
   favorites: 'Таңдаулылар',
   language: 'Тіл',

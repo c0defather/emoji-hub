@@ -1,121 +1,405 @@
 # Emoji Hub
 
-A Next.js app that mirrors [emojihub.yurace.pro](https://emojihub.yurace.pro/api/all) into Postgres,
-enriches every emoji with LLM-written descriptions, generational meanings and
-example messages in English, Russian and Kazakh, and serves it over a browsable UI.
+**Эмодзи для всех поколений. С объяснениями.**
 
-## How it works
+Emoji Hub зеркалирует полный каталог эмодзи в Postgres и с помощью LLM пишет для
+каждого эмодзи на английском, русском и казахском:
 
-1. **Daily sync** — `/api/cron/sync` fetches the full upstream catalogue (1791 emojis),
-   hashes the payload, and does nothing if the hash matches the previous run. When
-   something did change, only the affected rows are rewritten and their
-   `content_version` is bumped.
-2. **Enrichment** — `/api/cron/enrich` finds emojis with missing or stale translations
-   and asks a model (through the Vercel AI Gateway) to write, per locale, a name, a
-   description, a millennial meaning and a zoomer meaning, each with an example
-   message. Emojis are batched `EMOJI_ENRICHMENT_BATCH_SIZE` per request, run
-   `EMOJI_ENRICHMENT_CONCURRENCY` at a time and time-boxed so a run never exceeds the
-   function limit; leftovers are picked up next run.
-3. **Web app** — the browser downloads the whole catalogue from `/api/emojis` once and
-   does all the searching, filtering and sorting locally.
+- нейтральное описание того, что на картинке изображено;
+- что этот эмодзи значит, когда его отправляет **миллениал**, с примером сообщения;
+- что он значит, когда его отправляет **зумер**, с примером сообщения.
 
-## Web app
+Итого 1791 эмодзи × 3 языка = **5373 сгенерированные записи**. Получилось веб-приложение,
+в котором можно искать по всему каталогу, фильтровать по категории, сортировать,
+сохранять избранное прямо в браузере и открывать карточку любого эмодзи со всей
+известной о нём информацией — без единого спиннера между действиями, потому что браузер
+скачивает каталог один раз и дальше делает всю работу локально.
 
-| Route | What it does |
+| | |
 | --- | --- |
-| `/` | The browser: search, category filter, sorting, infinite grid |
-| `/emoji/[id]` | Everything stored about one emoji, in the active language |
-| `/favorites` | Emojis saved in this browser |
+| **Стек** | Next.js 16 (App Router), TypeScript, Postgres, Drizzle ORM, Tailwind CSS, Vercel AI SDK |
+| **Источник данных** | [emojihub.yurace.pro](https://emojihub.yurace.pro/api/all) |
+| **Модель** | `google/gemini-3.7-flash` через Vercel AI Gateway (настраивается) |
+| **Развёртывание** | Vercel (две ежедневные cron-задачи) |
 
-**One download, no round trips.** `lib/use-catalog.ts` fetches
-`/api/emojis?locale=all` once per tab and keeps the result in a module level cache, so
-navigating between pages never refetches. Every query after that runs in memory:
+---
 
-- **Search** matches the whole record, not just the name — id, English name, category,
-  the glyph itself, unicode and HTML codes, plus the name, description, generational
-  meanings and examples in all three languages. Multiple words must all match.
-- **Filters and sorting** are plain array operations over the cached catalogue, with
-  `Intl.Collator` for the active language.
-- **Filters live in the URL** (`?q=&category=&sort=&dir=`), so a view can be
-  shared or reached with the Back button.
+## Содержание
 
-**Language.** The switcher in the header picks between English, Russian and Kazakh and
-stores the choice in `localStorage`. All three translations are already in memory, so
-switching is instant. UI copy and the category labels live in `lib/i18n.ts`.
+- [Быстрый старт](#быстрый-старт)
+- [Почему такой стек](#почему-такой-стек)
+- [Как проектировалось и разрабатывалось](#как-проектировалось-и-разрабатывалось)
+- [Подходы, о которых стоит рассказать](#подходы-о-которых-стоит-рассказать)
+- [Компромиссы](#компромиссы)
+- [Известные проблемы и ограничения](#известные-проблемы-и-ограничения)
+- [Справочник](#справочник)
 
-**Favorites** are a list of emoji ids in `localStorage` under `emoji-hub.favorites`,
-kept in sync across tabs through the `storage` event. There is no account and nothing
-is sent to the server, so `/favorites` has **Export** and **Import** buttons to move
-them between browsers or keep a backup before the storage is cleared. Export downloads
-a small JSON file; import merges it into what is already saved and never removes
-anything, so restoring a stale backup is safe. Any JSON carrying a `favorites` array of
-ids — or just a bare array — is accepted. See `lib/favorites-file.ts`.
+---
 
-## Setup
+## Быстрый старт
 
-Requires Node 20+.
+Нужны **Node 20+**, **pnpm** и база **Postgres** (бесплатного тарифа
+[Neon](https://neon.tech) хватает). Для обогащения дополнительно понадобится
+[ключ Vercel AI Gateway](https://vercel.com/d?to=%2F%5Bteam%5D%2F~%2Fai-gateway%2Fapi-keys).
 
 ```bash
 pnpm install
-cp .env.example .env      # fill in POSTGRES_URL and AI_GATEWAY_API_KEY
-pnpm db:migrate           # create tables
-pnpm emojis:sync          # pull all 1791 emojis
-pnpm emojis:enrich        # backfill translations (takes a while)
-pnpm dev
+cp .env.example .env      # заполнить POSTGRES_URL (+ AI_GATEWAY_API_KEY для обогащения)
+pnpm db:migrate           # создать таблицы
+pnpm emojis:sync          # выгрузить все 1791 эмодзи из источника (~10 секунд)
+pnpm emojis:enrich        # сгенерировать все переводы (~30 минут, тратит токены)
+pnpm dev                  # http://localhost:3000
 ```
 
-### Environment variables
+По-настоящему в сеть ходят только шаги `emojis:sync` и `emojis:enrich`. **Обогащение —
+медленный и дорогой:** полная генерация заняла ~28 минут и примерно 86K входных / 835K выходных
+токенов при `EMOJI_ENRICHMENT_BATCH_SIZE=50` и трёх параллельных запросах. Процесс
+полностью возобновляемый: можно прервать его в любой момент, запустить снова — и он
+продолжит с того же места.
 
-| Variable | Required | Purpose |
+Чтобы посмотреть, как это работает, не оплачивая весь каталог:
+
+```bash
+pnpm emojis:enrich --limit=10 --once --verbose
+```
+
+Проверки:
+
+```bash
+pnpm typecheck && pnpm lint
+```
+
+### Переменные окружения
+
+| Переменная | Обязательна | Назначение |
 | --- | --- | --- |
-| `POSTGRES_URL` | yes | Neon connection string used at runtime |
-| `POSTGRES_URL_NON_POOLING` | for migrations | Direct connection used by drizzle-kit |
-| `AI_GATEWAY_API_KEY` | for enrichment | [AI Gateway key](https://vercel.com/d?to=%2F%5Bteam%5D%2F~%2Fai-gateway%2Fapi-keys). Not needed on Vercel with OIDC |
-| `CRON_SECRET` | in production | Shared secret guarding `/api/cron/*` |
-| `EMOJI_ENRICHMENT_MODEL` | no | Defaults to `google/gemini-3.7-flash` |
-| `EMOJI_ENRICHMENT_BATCH_SIZE` | no | Emojis per model call, default `8` |
-| `EMOJI_ENRICHMENT_CONCURRENCY` | no | Parallel model calls, default `3` |
-| `EMOJI_ENRICHMENT_MAX_ATTEMPTS` | no | Retries before an emoji is skipped, default `3` |
-| `EMOJI_ENRICHMENT_DEBUG` | no | `1` logs the full prompt and response body for every call |
+| `POSTGRES_URL` | да | Строка подключения, используемая в рантайме |
+| `POSTGRES_URL_NON_POOLING` | для миграций | Прямое подключение для drizzle-kit |
+| `AI_GATEWAY_API_KEY` | для обогащения | Не нужен при деплое на Vercel с включённым OIDC |
+| `CRON_SECRET` | в продакшене | Общий секрет, защищающий `/api/cron/*` |
+| `EMOJI_ENRICHMENT_MODEL` | нет | По умолчанию `google/gemini-3.7-flash` |
+| `EMOJI_ENRICHMENT_BATCH_SIZE` | нет | Эмодзи на один запрос к модели, по умолчанию `8` |
+| `EMOJI_ENRICHMENT_CONCURRENCY` | нет | Параллельных запросов, по умолчанию `3` |
+| `EMOJI_ENRICHMENT_MAX_ATTEMPTS` | нет | Попыток до пропуска эмодзи, по умолчанию `3` |
+| `EMOJI_ENRICHMENT_DEBUG` | нет | `1` логирует полный промпт и тело ответа |
 
-## API
+### Скрипты
 
-The app only needs one endpoint, so that is all there is. Every route that nothing
-called has been removed rather than kept around as an unused surface.
+| Команда | Описание |
+| --- | --- |
+| `pnpm dev` / `pnpm build` / `pnpm start` | Next.js |
+| `pnpm typecheck` / `pnpm lint` | Статические проверки |
+| `pnpm emojis:sync [--force]` | Синхронизация с источником из CLI |
+| `pnpm emojis:enrich [--limit=N] [--once] [--batch-size=N] [--concurrency=N] [--force] [--verbose]` | Обогащать, пока есть необработанные эмодзи |
+| `pnpm db:generate` / `pnpm db:migrate` / `pnpm db:studio` | Drizzle Kit |
 
-### `GET /api/emojis`
+---
 
-Returns the catalogue. There is no server-side search or category filter — the client
-holds the whole thing and filters locally.
+## Почему такой стек
 
-| Query param | Default | Notes |
+**Next.js (App Router).** Проект — это один интерфейс, один JSON-эндпоинт и две
+задачи по расписанию. Next.js помещает всё это в одну разворачиваемую единицу: не нужен
+отдельный бэкенд-сервис, не нужна настройка CORS, не нужен второй CI-пайплайн. Серверные
+компоненты вдобавок позволяют странице эмодзи обращаться к Postgres напрямую и
+рендериться на сервере — без клиентского запроса, без состояния загрузки и с настоящими
+метаданными для превью ссылок. Отдельный SPA плюс API-сервер удвоили бы эксплуатационную
+поверхность без всякой выгоды на таком масштабе.
+
+**TypeScript.** Эмодзи пересекает четыре границы: JSON источника → провалидированный
+объект → строка в базе → DTO → пропс React-компонента. Каждая граница — место, где
+переименованное поле ломается молча. Типы (плюс zod на недоверенных границах)
+превращают это в ошибки сборки. Это окупилось напрямую, когда удалялась колонка `group`
+и когда добавлялись поля с примерами: компилятор сам перечислил все места, требующие
+правки.
+
+**Postgres + Drizzle ORM.** Данные реляционные (эмодзи 1→N переводов), нужны частичные
+индексы и агрегаты вида `count(*) filter (...)`, а очередь обогащения выражается обычным
+`LEFT JOIN` — об этом ниже. Postgres умеет всё это нативно. Drizzle выбран вместо Prisma
+по двум причинам: его билдер запросов имеет форму SQL, поэтому сложные запросы остаются
+читаемыми, а не выкручиваются в диалект ORM; и он генерирует обычные `.sql`-файлы
+миграций, которые видно в диффе. Кроме того, у него нет шага кодогенерации и отдельного
+бинарника движка запросов, что уменьшает холодный старт в serverless.
+
+**Vercel AI SDK + AI Gateway.** `generateObject` со схемой zod означает, что модель либо
+возвращает JSON, соответствующий схеме, либо падает с ошибкой — нет ни ручного парсинга,
+ни ветки «надеемся, что модель вернула валидный JSON». Gateway превращает провайдера в
+строку (`EMOJI_ENRICHMENT_MODEL`), поэтому попробовать другую модель — это изменить
+переменную окружения, а не подключать новый SDK, новый клиент и новую обработку ошибок.
+
+**Tailwind CSS.** Интерфейс — около десятка компонентов, поддерживать дизайн-систему
+незачем. Утилитарные классы держат стили рядом с разметкой, то есть для проекта такого
+размера читать нужно один файл вместо двух. Три повторяющихся паттерна (`.card`,
+`.field`, `.glyph`) вынесены через `@apply` в `globals.css`.
+
+**Без библиотеки управления состоянием.** Глобального клиентского состояния ровно два
+куска — активная локаль и список избранного, — и оба это React-контексты строк на сорок
+поверх `localStorage`. Redux или Zustand были бы сложнее, чем состояние, которым они
+управляют.
+
+---
+
+## Как проектировалось и разрабатывалось
+
+Проект стартовал со стартера Vercel `postgres-drizzle` и собирался в четыре этапа,
+каждый из которых полностью работал до начала следующего.
+
+**1. Сначала слой данных.** Схема, клиент к источнику и задача синхронизации,
+проверенные запуском `pnpm emojis:sync` на настоящей базе ещё до появления хотя бы
+одного компонента. Неочевидная проблема здесь — идентичность: API источника не отдаёт
+первичный ключ, а имена эмодзи *не уникальны* (есть несколько записей, буквально
+названных `flag`). Поэтому id — это слаг из имени плюс unicode-кодпоинты: единственная
+комбинация, уникальность которой источник гарантирует. Ошибка здесь позже означала бы
+перегенерацию всех переводов, так что вопрос стоило закрыть первым.
+
+**2. Пайплайн обогащения.** Сделан как CLI-скрипт (`scripts/enrich.ts`) раньше, чем стал
+HTTP-эндпоинтом, чтобы промпт можно было дёшево итерировать на 2–10 эмодзи за раз, а
+`--verbose` печатал полный запрос и ответ. Основная работа на этом этапе была не в коде,
+а в промпте. Ранние версии выдавали русский, который на деле был транслитерированным
+английским, и казахский, который был пословным переводом английской фразы; сейчас
+системный промпт явно запрещает и то, и другое и требует казахский на кириллице. Та же
+функция была подключена к `/api/cron/enrich` только после того, как результат стал
+стабильно хорошим.
+
+**3. API на чтение и интерфейс.** Один эндпоинт, затем каталог, страница эмодзи и
+избранное. Решение скачивать весь каталог на клиент (вместо запроса на каждое нажатие
+клавиши) было принято здесь и определило всё дальнейшее: фильтры, сортировка,
+переключение языка и избранное превратились в обычные операции над массивом.
+
+**4. Сокращение.** После стартера и первых двух этапов осталось много того, чем
+интерфейс не пользовался: демонстрационная таблица `profiles`, шесть API-эндпоинтов,
+измерение `group` у эмодзи, которое оказалось дубликатом `category`, и блок «другие
+языки», ставший ненужным, когда переключение языка стало мгновенным. На этом этапе всё
+перечисленное было удалено, а по репозиторию был прогнан [`knip`](https://knip.dev),
+чтобы найти неиспользуемые файлы, экспорты и зависимости, которые при чтении глазами
+пропускаются. API сократился с семи эндпоинтов до трёх (один на чтение и два cron).
+
+Схема менялась дважды уже после того, как в базе появились данные; обе миграции
+закоммичены в `drizzle/`:
+
+| Миграция | Изменение |
+| --- | --- |
+| `0001_drop_profiles` | Удалена демо-таблица из стартера |
+| `0002_group_out_examples_in` | Удалён `emojis.group`; добавлены `millennial_example` и `zoomer_example` |
+
+---
+
+## Подходы, о которых стоит рассказать
+
+### Очередь обогащения — это запрос, а не очередь
+
+Нет ни таблицы задач, ни Redis, ни воркера. На вопрос «каким эмодзи нужна работа»
+отвечает `LEFT JOIN` между `emojis` и `emoji_translations`, считающий полные строки для
+текущей версии контента:
+
+```
+emojis LEFT JOIN emoji_translations
+  ON translation.emoji_id = emoji.id
+ AND translation.source_version = emoji.content_version
+ AND translation.millennial_example IS NOT NULL
+WHERE translation.emoji_id IS NULL
+```
+
+Поскольку очередь выводится из самих данных, а не хранится рядом с ними, она физически
+не может рассинхронизироваться с реальностью. Упавший запуск, убитый CLI-процесс или
+функция, упёршаяся в лимит времени, не оставляют ничего, что нужно подчищать: следующий
+запуск просто задаёт тот же вопрос и получает верный ответ. Именно это бесплатно делает
+`pnpm emojis:enrich` возобновляемым.
+
+### Синхронизация, адресуемая по содержимому
+
+Ежедневную синхронизацию делают дешёвой и идемпотентной два уровня хеширования:
+
+- **Хеш полезной нагрузки** покрывает весь ответ источника. Если он совпал с предыдущим
+  запуском, задача записывает статус `unchanged` и останавливается — вообще без записей
+  в базу, что и происходит почти каждый день.
+- Хеш **`source_hash`** для каждого эмодзи определяет, какие именно строки изменились.
+  При изменении у эмодзи инкрементируется `content_version`, а это ровно то, что делает
+  его переводы устаревшими для запроса выше.
+
+Так изменение в источнике распространяется само: синхронизация поднимает версию, а
+следующий проход обогащения перегенерирует только затронутые эмодзи.
+
+### Nullable-колонка как сигнал к дозаполнению
+
+Когда добавлялись примеры употребления, две новые колонки были сделаны **nullable
+намеренно**. `NULL` в примере означает «эта строка написана до того, как примеры
+появились», и делает строку невидимой для join'а очереди выше — то есть все 1791 эмодзи
+вернулись в очередь сами, без одноразового скрипта дозаполнения и ручного учёта.
+Добавить в проект новое генерируемое поле — это: добавить колонку, добавить её в
+zod-схему и промпт, добавить в условие join'а. Остальное пайплайн делает сам.
+
+### Ошибки модели и ошибки платформы считаются по-разному
+
+У каждого эмодзи есть бюджет попыток (`EMOJI_ENRICHMENT_MAX_ATTEMPTS`), после которого
+он пропускается, чтобы один патологический случай не блокировал запуск вечно. Но этот
+бюджет расходуют только **неразбираемые ответы** — когда модель проигнорировала схему
+или ответ обрезался. Закончившиеся кредиты, рейт-лимиты и сбои провайдера логируются и
+повторяются на следующем запуске без штрафа для эмодзи, потому что такие сбои ничего не
+говорят о самом эмодзи. Без этого различения один протухший API-ключ навсегда отравил бы
+весь каталог за три запуска cron.
+
+### Одна загрузка — дальше всё локально
+
+`lib/use-catalog.ts` один раз на вкладку запрашивает `/api/emojis?locale=all` в кеш
+уровня модуля, за общим in-flight промисом, чтобы два одновременно смонтированных
+компонента породили один запрос. Всё дальнейшее — операции над этой копией массива:
+
+- **Поиск** идёт по заранее посчитанной строке-«стогу сена» в нижнем регистре для
+  каждого эмодзи: id, английское имя, категория, сам символ, unicode, HTML-коды, а также
+  имя, описание, оба поколенческих значения и оба примера на всех трёх языках. При
+  запросе из нескольких слов должны совпасть все слова.
+- **Сортировка** использует `Intl.Collator` для активного языка, поэтому кириллица
+  сортируется правильно для русского и казахского, а не по кодпоинтам.
+- **Переключение языка** перерисовывает из памяти: все три перевода уже здесь, поэтому
+  нет ни запроса, ни мелькания английского текста.
+- Фильтры отражаются в URL (`?q=&category=&sort=&dir=`), чтобы вид можно было переслать
+  или вернуться к нему кнопкой «Назад», а поле поиска обёрнуто в `useDeferredValue`,
+  чтобы ввод оставался отзывчивым, пока перефильтровываются ~1800 элементов.
+
+### Избранное, которое переживает браузер
+
+Избранное — это id эмодзи в `localStorage`, синхронизируемые между вкладками через
+событие `storage`. Аккаунтов нет и на сервер ничего не уходит, поэтому на `/favorites`
+есть кнопки **Экспорт** и **Импорт**. Экспорт скачивает небольшой JSON-файл; импорт
+*объединяет* и никогда не удаляет, так что восстановление старой резервной копии не
+может уничтожить более новое избранное. Парсер принимает любой JSON с массивом id в поле
+`favorites` — или просто голый массив, — поэтому файл, написанный руками, тоже подойдёт.
+
+---
+
+## Компромиссы
+
+**Скачать весь каталог против запросов к серверу.** Отдача ~927 КБ в gzip сразу покупает
+мгновенный поиск, мгновенную фильтрацию, мгновенную сортировку, мгновенное переключение
+языка, один кешируемый CDN-ответ для всех пользователей и удаление целого класса кода
+(дебаунс запросов, гонки, состояния загрузки, пагинация). Цена — более медленная первая
+отрисовка и потраченные впустую байты для того, кто посмотрел один эмодзи и ушёл. Для
+каталога, который небольшой, публичный, одинаковый для всех и меняется раз в сутки, этот
+обмен выгоден — но он был бы неверным решением для данных больших, приватных или часто
+обновляемых.
+
+**Хранить сгенерированный текст против генерации по запросу.** Генерация в момент
+запроса всегда была бы актуальной и не требовала бы базы, но каждый просмотр страницы
+стоил бы токенов и секунд. Хранение делает чтение бесплатным и мгновенным ценой проблемы
+устаревания — ради решения которой и существует механика `content_version`.
+
+**Большие батчи против одного эмодзи на запрос.** Попросить 50 эмодзи одним вызовом
+намного дешевле и быстрее, чем 50 вызовов, потому что системный промпт отправляется один
+раз вместо пятидесяти. Риск в том, что один некорректный ответ теряет весь батч. Это
+компенсируется повторами, описанной выше классификацией сбоев и явным бюджетом выходных
+токенов на эмодзи — без него провайдеры применяют собственный лимит по умолчанию и молча
+обрезают JSON посреди объекта, а это очень неудобный способ узнать о проблеме.
+
+**Сохранение мёртвого поля в хеше.** `source_hash` по-прежнему включает поле `group` из
+источника, хотя колонка удалена. Убрать его из хеша означало бы разом изменить все 1791
+хеш и без всякой причины отправить весь каталог на повторное обогащение. Комментарий в
+`lib/emoji-hub/client.ts` объясняет, почему поле парсится, но не хранится.
+
+**Удаление неиспользуемого API вместо его сохранения.** Были эндпоинты для категорий,
+групп, статистики, истории синхронизаций, health-check и одиночного эмодзи. Ни один не
+использовался интерфейсом. Оставить их означало бы поддерживать и документировать
+публичный API, который никто не потребляет, поэтому они удалены вместе с функциями
+запросов за ними. Если публичный API когда-нибудь станет целью, его стоит спроектировать
+как API, а не оставлять тем, что случайно осталось от интерфейса.
+
+**Мягкое удаление вместо жёсткого.** Эмодзи, исчезнувшие из источника, помечаются
+`is_active = false`, а не удаляются, чтобы их (оплаченные) переводы уцелели, если эмодзи
+вернётся.
+
+**Отсутствие автотестов.** Проверка — это `pnpm typecheck`, `pnpm lint`, `knip` и ручные
+прогоны на настоящей базе. Учитывая, что самый рискованный компонент здесь —
+недетерминированная модель, юнит-тесты покрыли бы наименее рискованные части системы. Но
+это честный пробел, а не достоинство; см. ниже.
+
+---
+
+## Известные проблемы и ограничения
+
+**Тяжёлая первая загрузка.** Каталог — это ~3.9 МБ JSON, ~927 КБ в gzip. Он кешируется
+CDN и запрашивается один раз на вкладку, но на медленном соединении сетка несколько
+секунд показывает скелетон. Добавление примеров употребления увеличило этот объём
+примерно на 40%. Очевидное решение — сначала отдавать урезанный индекс (id, имя,
+категория, символ), а остальное догружать лениво.
+
+**Нет автотестов.** Тестового набора нет вообще. Детерминированные части — вычисление
+`source_hash`, логика диффа при синхронизации и парсер файла избранного — тестируемы, и
+тесты у них быть должны.
+
+**Сгенерированный текст никем не вычитан.** Все 5373 записи — вывод модели. Ни один
+носитель языка их не проверял, а казахский представлен в обучающих данных существенно
+хуже английского и русского, поэтому его качество, вероятно, самое неровное.
+Пожаловаться на плохую запись из интерфейса тоже нельзя.
+
+**Поиск — простое совпадение подстроки.** Русский и казахский сильно флективные, поэтому
+запрос `кошка` не найдёт `кошки`. Ни стемминга, ни нечёткого поиска, ни устойчивости к
+опечаткам нет.
+
+**Позиция скролла не восстанавливается.** Сетка рендерится порциями по 96 через
+`IntersectionObserver`; если открыть эмодзи и нажать «Назад», вы окажетесь в начале
+заново набранного списка, а не там, где были.
+
+**Избранное живёт в конкретном браузере.** Очистка данных сайта его теряет.
+Экспорт/импорт — единственная страховка, и она ручная: аккаунтов и синхронизации нет.
+
+**Отрисовка эмодзи зависит от системного шрифта.** Новые эмодзи на старых системах могут
+показываться пустыми квадратами. Картинок-фолбэков нет.
+
+**Названия категорий захардкожены.** Они переведены руками в `lib/i18n.ts`. Если источник
+добавит категорию, она будет отображаться английским текстом с заглавной буквы, пока её
+не добавят вручную.
+
+**Эндпоинт на чтение без авторизации и без ограничения частоты.** `/api/emojis` публичен
+и не имеет рейт-лимита; нагрузку принимает на себя CDN (`s-maxage=300`).
+
+**Частота cron на тарифе Hobby.** Vercel Hobby разрешает один запуск каждой cron-задачи в
+сутки, поэтому в день с большим количеством изменений в источнике часть эмодзи может
+остаться необогащённой до следующего дня, если не запустить `pnpm emojis:enrich` вручную.
+
+---
+
+## Справочник
+
+### Страницы
+
+| Маршрут | Что делает |
+| --- | --- |
+| `/` | Поиск, фильтр по категории, сортировка, бесконечная сетка |
+| `/emoji/[id]` | Всё, что хранится об одном эмодзи, на активном языке |
+| `/favorites` | Эмодзи, сохранённые в этом браузере, с экспортом и импортом |
+
+### API
+
+`GET /api/emojis` возвращает каталог. Серверного поиска и фильтра по категории
+намеренно нет — клиент держит всё у себя и фильтрует локально.
+
+| Параметр запроса | По умолчанию | Примечания |
 | --- | --- | --- |
-| `locale` | `all` | `en`, `ru`, `kz`, a comma-separated list, or `all` |
-| `limit` | `5000` | 1–5000; high enough for the UI to pull the catalogue in one request |
-| `offset` | `0` | Page start |
+| `locale` | `all` | `en`, `ru`, `kz`, список через запятую или `all` |
+| `limit` | `5000` | 1–5000 |
+| `offset` | `0` | Начало страницы |
 
 ```jsonc
 {
   "data": [
     {
-      "id": "grinning-face-u-1f600",
-      "character": "😀",
-      "name": "grinning face",
+      "id": "smirking-face-u-1f60f",
+      "character": "😏",
+      "name": "smirking face",
       "category": "smileys and people",
-      "htmlCode": ["&#128512;"],
-      "unicode": ["U+1F600"],
+      "htmlCode": ["&#128527;"],
+      "unicode": ["U+1F60F"],
       "enriched": true,
-      "updatedAt": "2026-09-01T15:07:13.084Z",
+      "updatedAt": "2026-09-02T07:19:07.441Z",
       "translations": {
         "en": {
-          "name": "grinning face",
-          "description": "A yellow face with a wide open smile showing upper teeth.",
+          "name": "smirking face",
+          "description": "A yellow face with a half smile raised to one side…",
           "millennialMeaning": "…",
-          "millennialExample": "Great catching up today! 😀",
+          "millennialExample": "Are you free tonight? We should grab some drinks 😏",
           "zoomerMeaning": "…",
-          "zoomerExample": "he really said that with his whole chest 😀",
+          "zoomerExample": "bro thought he cooked 😏",
           "model": "google/gemini-3.7-flash",
-          "updatedAt": "2026-09-01T15:30:39.281Z"
+          "updatedAt": "2026-09-02T07:19:07.441Z"
         },
         "ru": { "…": "…" },
         "kz": { "…": "…" }
@@ -128,66 +412,42 @@ holds the whole thing and filters locally.
 }
 ```
 
-### Cron endpoints
-
-| Endpoint | Description |
+| Cron-эндпоинт | Описание |
 | --- | --- |
-| `GET\|POST /api/cron/sync` | Runs the sync. `?force=true` re-applies an unchanged payload |
-| `GET\|POST /api/cron/enrich` | Runs one enrichment pass. `?limit=`, `?timeBudgetMs=`, `?force=true` |
+| `GET\|POST /api/cron/sync` | Запускает синхронизацию. `?force=true` применяет неизменившуюся нагрузку заново |
+| `GET\|POST /api/cron/enrich` | Запускает один проход обогащения. `?limit=`, `?timeBudgetMs=`, `?force=true` |
 
-The cron endpoints require `Authorization: Bearer $CRON_SECRET` (what Vercel Cron
-sends) or an `x-cron-secret` header. Auth is skipped when `CRON_SECRET` is unset
-outside production.
+Оба требуют заголовок `Authorization: Bearer $CRON_SECRET` (именно его шлёт Vercel Cron)
+или `x-cron-secret`. Вне продакшена, если `CRON_SECRET` не задан, проверка пропускается.
 
-## Scheduling
+### Модель данных
 
-`vercel.json` registers two daily cron jobs: the sync at 03:00 UTC and one
-enrichment pass at 03:30 UTC. One pass handles the emojis that changed that day;
-the initial backfill of all 1791 emojis is meant to be run once with
-`pnpm emojis:enrich`. If you want the backfill to happen on the deployment
-instead, lower the enrichment schedule to hourly — note that Hobby projects are
-limited to one invocation per day per cron.
+- **`emojis`** — по строке на каждый эмодзи из источника. `source_hash` отслеживает
+  изменения конкретного эмодзи, `content_version` инвалидирует переводы, `is_active`
+  помечает эмодзи, исчезнувшие из источника.
+- **`emoji_translations`** — первичный ключ `(emoji_id, locale)`; хранит имя, описание,
+  оба поколенческих значения и примеры сообщений к ним, а также модель, которая их
+  написала, и `source_version`, для которой они сгенерированы.
+- **`sync_runs`** — журнал синхронизаций со счётчиками, длительностью, хешем нагрузки и
+  ошибками.
 
-## Enrichment logs
+### Расписание
 
-Every model call logs a `[enrich]` line to stdout, which means the Vercel
-runtime logs for cron runs and the terminal for CLI runs:
+`vercel.json` регистрирует синхронизацию в 03:00 UTC и один проход обогащения в 03:30
+UTC. Одного прохода хватает на эмодзи, изменившиеся за сутки; первичную генерацию всех
+1791 предполагается один раз запустить из CLI.
+
+### Логи обогащения
+
+Каждый вызов модели пишет в stdout — в рантайм-логи Vercel для cron и в терминал для
+CLI:
 
 ```
-[enrich] request model=google/gemini-3.7-flash batch=8 emojis=[snake-u-1f40d, ...]
-[enrich] response batch=8 results=8 tokens=612/5310 took=11.4s
-[enrich] failed batch=8 took=1.5s emojis=[...] reason=...
+[enrich] request model=google/gemini-3.7-flash batch=50 emojis=[snail-u-1f40c, …]
+[enrich] response batch=50 results=50 tokens=2226/19592 took=79.1s
+[enrich] failed batch=8 took=1.5s emojis=[…] reason=…
 ```
 
-A failure caused by an unparseable response also logs the raw body, since that
-is the only way to tell a truncated answer apart from a model that ignored the
-schema. Add `--verbose` (or set `EMOJI_ENRICHMENT_DEBUG=1`) to log the full
-prompt and the full response body for every call.
-
-Only unparseable responses count against an emoji's `MAX_ATTEMPTS` budget.
-Missing credits, rate limits and provider outages are logged and retried on the
-next run without marking the emoji as bad.
-
-## Data model
-
-- **`emojis`** — one row per upstream emoji. `id` is a slug of the name plus its
-  unicode code points, which is the only unique combination the upstream API
-  offers. `source_hash` detects per-emoji changes, `content_version` invalidates
-  translations, `is_active` marks emojis that disappeared upstream.
-- **`emoji_translations`** — `(emoji_id, locale)` primary key, holding the name,
-  description, both generational meanings and their example messages, plus the model
-  that wrote them and the `source_version` they were generated from. The example
-  columns are nullable because they were added later; a null sends the emoji back
-  through enrichment.
-- **`sync_runs`** — audit trail with per-run counts, duration, payload hash and errors.
-
-## Scripts
-
-| Command | Description |
-| --- | --- |
-| `pnpm emojis:sync [--force]` | Run the sync from the CLI |
-| `pnpm emojis:enrich [--limit=N] [--once] [--batch-size=N] [--concurrency=N] [--force] [--verbose]` | Enrich until nothing is pending |
-| `pnpm db:generate` | Generate a migration from schema changes |
-| `pnpm db:migrate` | Apply migrations |
-| `pnpm db:studio` | Open Drizzle Studio |
-| `pnpm typecheck` / `pnpm lint` | Static checks |
+При неразбираемом ответе дополнительно логируется сырое тело: это единственный способ
+отличить обрезанный ответ от модели, проигнорировавшей схему. Флаг `--verbose` (или
+`EMOJI_ENRICHMENT_DEBUG=1`) логирует полный промпт и ответ для каждого вызова.
