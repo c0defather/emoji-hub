@@ -33,7 +33,14 @@ export async function GET(request: NextRequest) {
       }),
     })
 
-    return json(result)
+    // The catalogue only moves once a day and the browser downloads all of it
+    // on first paint, so it is worth letting the CDN hold on to the response.
+    return json(result, {
+      headers: {
+        'Cache-Control':
+          'public, max-age=0, s-maxage=300, stale-while-revalidate=86400',
+      },
+    })
   } catch (error) {
     return errorResponse(error)
   }

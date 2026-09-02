@@ -8,6 +8,13 @@
       "when": 1788274846029,
       "tag": "0000_init_emoji_hub",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788326352555,
+      "tag": "0001_drop_profiles",
+      "breakpoints": true
     }
   ]
 }

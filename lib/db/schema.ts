@@ -8,13 +8,12 @@ import {
   serial,
   text,
   timestamp,
-  uniqueIndex,
 } from 'drizzle-orm/pg-core'
 import { InferInsertModel, InferSelectModel, relations } from 'drizzle-orm'
+import { LOCALES } from '@/lib/emoji'
 
-/** Locales every emoji is translated into. */
-export const LOCALES = ['en', 'ru', 'kz'] as const
-export type Locale = (typeof LOCALES)[number]
+export { LOCALES }
+export type { Locale } from '@/lib/emoji'
 
 export const localeEnum = pgEnum('locale', LOCALES)
 export const syncStatusEnum = pgEnum('sync_status', [
@@ -132,23 +131,8 @@ export const emojiTranslationsRelations = relations(
   })
 )
 
-/** Table from the starter template, kept so the existing demo page still works. */
-export const UsersTable = pgTable(
-  'profiles',
-  {
-    id: serial('id').primaryKey(),
-    name: text('name').notNull(),
-    email: text('email').notNull(),
-    image: text('image').notNull(),
-    createdAt: timestamp('createdAt').defaultNow().notNull(),
-  },
-  (users) => [uniqueIndex('unique_idx').on(users.email)]
-)
-
 export type Emoji = InferSelectModel<typeof emojis>
 export type NewEmoji = InferInsertModel<typeof emojis>
 export type EmojiTranslation = InferSelectModel<typeof emojiTranslations>
 export type NewEmojiTranslation = InferInsertModel<typeof emojiTranslations>
 export type SyncRun = InferSelectModel<typeof syncRuns>
-export type User = InferSelectModel<typeof UsersTable>
-export type NewUser = InferInsertModel<typeof UsersTable>

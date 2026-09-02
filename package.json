@@ -1,6 +1,5 @@
 {
-  "name": "postgres-drizzle",
-  "repository": "https://github.com/vercel/examples.git",
+  "name": "emoji-hub",
   "license": "MIT",
   "version": "0.0.0",
   "private": true,
@@ -18,7 +17,6 @@
     "emojis:enrich": "tsx scripts/enrich.ts"
   },
   "dependencies": {
-    "@types/ms": "^0.7.32",
     "@types/node": "20.8.3",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
@@ -27,7 +25,6 @@
     "drizzle-orm": "^0.45.2",
     "eslint": "8.51.0",
     "eslint-config-next": "^15.1.6",
-    "ms": "^2.1.3",
     "next": "^16.0.10",
     "postcss": "8.4.31",
     "postgres": "^3.4.5",

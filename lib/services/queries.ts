@@ -13,35 +13,15 @@ import {
   type SQL,
 } from 'drizzle-orm'
 import { db } from '@/lib/db'
+import { emojiTranslations, emojis, syncRuns } from '@/lib/db/schema'
 import {
-  emojiTranslations,
-  emojis,
   LOCALES,
-  syncRuns,
+  type EmojiDto,
+  type EmojiTranslationDto,
   type Locale,
-} from '@/lib/db/schema'
+} from '@/lib/emoji'
 
-export interface EmojiTranslationDto {
-  name: string
-  description: string
-  millennialMeaning: string
-  zoomerMeaning: string
-  model: string | null
-  updatedAt: string
-}
-
-export interface EmojiDto {
-  id: string
-  character: string
-  name: string
-  category: string
-  group: string
-  htmlCode: string[]
-  unicode: string[]
-  enriched: boolean
-  updatedAt: string
-  translations: Partial<Record<Locale, EmojiTranslationDto>>
-}
+export type { EmojiDto, EmojiTranslationDto }
 
 export interface ListEmojisParams {
   locales: Locale[]

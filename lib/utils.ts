@@ -1,8 +1,4 @@
-import ms from 'ms'
-
-export const timeAgo = (timestamp: Date, timeOnly?: boolean): string => {
-  if (!timestamp) return 'never'
-  return `${ms(Date.now() - new Date(timestamp).getTime())}${
-    timeOnly ? '' : ' ago'
-  }`
+/** Joins conditional Tailwind class names, dropping anything falsy. */
+export function cn(...values: Array<string | false | null | undefined>) {
+  return values.filter(Boolean).join(' ')
 }

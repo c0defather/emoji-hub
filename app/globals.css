@@ -2,18 +2,47 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 214, 219, 220;
-  --background-end-rgb: 255, 255, 255;
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply min-h-screen bg-slate-50 text-slate-900 antialiased;
+    background-image:
+      radial-gradient(
+        42rem 42rem at 12% -8%,
+        theme('colors.violet.200 / 55%'),
+        transparent 60%
+      ),
+      radial-gradient(
+        38rem 38rem at 92% 4%,
+        theme('colors.sky.200 / 45%'),
+        transparent 60%
+      );
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-violet-500 ring-offset-2 ring-offset-white;
+  }
 }
 
-body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+@layer components {
+  /* Colour emoji fonts have their own metrics; the reset keeps glyphs centred
+     at the very large sizes used on cards and the detail page. */
+  .glyph {
+    @apply font-emoji;
+    line-height: 1;
+    font-variant-emoji: emoji;
+  }
+
+  .card {
+    @apply rounded-2xl bg-white/80 shadow-sm ring-1 ring-slate-900/5 backdrop-blur-sm;
+  }
+
+  .field {
+    @apply h-11 w-full rounded-xl border-0 bg-white/80 pl-3 pr-9 text-sm font-medium text-slate-800 shadow-sm ring-1 ring-slate-900/10 transition hover:ring-slate-900/20;
+  }
 }

@@ -1,8 +1,8 @@
-# Emoji Hub Backend
+# Emoji Hub
 
-A Next.js backend that mirrors [emojihub.yurace.pro](https://emojihub.yurace.pro/api/all) into Postgres,
+A Next.js app that mirrors [emojihub.yurace.pro](https://emojihub.yurace.pro/api/all) into Postgres,
 enriches every emoji with LLM-written descriptions and generational meanings in
-English, Russian and Kazakh, and serves it all over a JSON API.
+English, Russian and Kazakh, and serves it over a JSON API and a browsable UI.
 
 ## How it works
 
@@ -17,6 +17,38 @@ English, Russian and Kazakh, and serves it all over a JSON API.
    function limit; leftovers are picked up next run.
 3. **Read API** — `/api/emojis` and friends serve the stored data with filtering,
    search and locale selection.
+4. **Web app** — the browser downloads the whole catalogue once and does all the
+   searching, filtering and sorting locally.
+
+## Web app
+
+| Route | What it does |
+| --- | --- |
+| `/` | The browser: search, category and group filters, sorting, infinite grid |
+| `/emoji/[id]` | Everything stored about one emoji, in every language |
+| `/favorites` | Emojis saved in this browser |
+
+**One download, no round trips.** `lib/use-catalog.ts` fetches
+`/api/emojis?locale=all&limit=2000` once per tab and keeps the result in a module
+level cache, so navigating between pages never refetches. Every query after that
+runs in memory:
+
+- **Search** matches the whole record, not just the name — id, English name, category,
+  group, the glyph itself, unicode and HTML codes, plus the name, description and both
+  generational meanings in all three languages. Multiple words must all match.
+- **Filters and sorting** are plain array operations over the cached catalogue. The
+  group dropdown only lists groups belonging to the selected category, and sorting uses
+  `Intl.Collator` for the active language.
+- **Filters live in the URL** (`?q=&category=&group=&sort=&dir=`), so a view can be
+  shared or reached with the Back button.
+
+**Language.** The switcher in the header picks between English, Russian and Kazakh and
+stores the choice in `localStorage`. All three translations are already in memory, so
+switching is instant. UI copy and the category/group labels live in `lib/i18n.ts`.
+
+**Favorites** are a list of emoji ids in `localStorage` under `emoji-hub.favorites`,
+kept in sync across tabs through the `storage` event. There is no account and nothing
+is sent to the server.
 
 ## Setup
 
@@ -59,7 +91,7 @@ All responses are JSON. Timestamps are ISO 8601 strings.
 | `search` | – | Case-insensitive match on the English name and on translated names/descriptions |
 | `enriched` | – | `true` returns only emojis that already have translations |
 | `random` | – | `true` returns a random selection instead of an ordered page |
-| `limit` | `50` | 1–200 |
+| `limit` | `5000` | 1–5000; high enough for the UI to pull the catalogue in one request |
 | `offset` | `0` | Ignored when `random=true` |
 
 ```jsonc
