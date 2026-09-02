@@ -49,11 +49,13 @@ export function EmojiGridSkeleton({ count = 24 }: { count?: number }) {
       {Array.from({ length: count }, (_, index) => (
         <li
           key={index}
-          className="card flex h-[8.25rem] animate-pulse flex-col items-center justify-center gap-3 p-4"
+          className="card flex h-[11rem] animate-pulse flex-col items-center justify-center gap-3 p-4"
         >
           <div className="h-9 w-9 rounded-full bg-slate-200/80" />
           <div className="h-2.5 w-16 rounded-full bg-slate-200/80" />
-          <div className="h-2 w-10 rounded-full bg-slate-200/60" />
+          <div className="h-2 w-20 rounded-full bg-slate-200/60" />
+          <div className="h-2 w-14 rounded-full bg-slate-200/60" />
+          <div className="h-2 w-10 rounded-full bg-slate-200/50" />
         </li>
       ))}
     </ul>
